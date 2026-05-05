@@ -14,9 +14,11 @@ export function UserAdmin() {
     
     const q = query(collection(db, 'users'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const usersData = snapshot.docs.map(doc => ({
-        uid: doc.id,
-        ...doc.data()
+      // doc.id agora é o username; uid dentro do documento é o Firebase Auth UID atual
+      const usersData = snapshot.docs.map(d => ({
+        ...d.data(),
+        // garante que username === doc.id (chave persistente)
+        username: d.id,
       })) as UserProfile[];
       setUsersList(usersData);
     }, (error) => {
@@ -25,18 +27,19 @@ export function UserAdmin() {
     return () => unsubscribe();
   }, []);
 
-  const handleRoleChange = async (uid: string, newRole: string) => {
+  // Usa username como chave do documento (não o uid do Firebase Auth)
+  const handleRoleChange = async (username: string, newRole: string) => {
     try {
-      await updateDoc(doc(db, 'users', uid), { role: newRole });
+      await updateDoc(doc(db, 'users', username), { role: newRole });
       toast.success('Perfil operacional atualizado!');
     } catch (error) {
       toast.error('Erro ao atualizar perfil.');
     }
   };
 
-  const handleAdminToggle = async (uid: string, currentAdminStatus: boolean) => {
+  const handleAdminToggle = async (username: string, currentAdminStatus: boolean) => {
     try {
-      await updateDoc(doc(db, 'users', uid), { isAdmin: !currentAdminStatus });
+      await updateDoc(doc(db, 'users', username), { isAdmin: !currentAdminStatus });
       toast.success(currentAdminStatus ? 'Privilégio de Admin removido.' : 'Privilégio de Admin concedido!');
     } catch (error) {
       toast.error('Erro ao atualizar privilégios.');
@@ -75,15 +78,15 @@ export function UserAdmin() {
           </thead>
           <tbody className="divide-y divide-slate-100">
             {usersList.map((u) => (
-              <tr key={u.uid} className="hover:bg-slate-50 transition-colors">
+              <tr key={u.username} className="hover:bg-slate-50 transition-colors">
                 <td className="px-6 py-4 font-medium text-slate-800">
                   {u.username}
                   {u.isAdmin && <Shield size={14} className="inline ml-2 text-brand-500" title="Administrador" />}
                 </td>
                 <td className="px-6 py-4">
-                  <select 
+                  <select
                     value={u.role}
-                    onChange={(e) => handleRoleChange(u.uid, e.target.value)}
+                    onChange={(e) => handleRoleChange(u.username, e.target.value)}
                     className="bg-slate-50 border border-slate-200 text-slate-700 text-sm rounded-lg focus:ring-brand-500 focus:border-brand-500 block w-full p-2 outline-none"
                   >
                     <option value="Visualizador">Visualizador (Somente Leitura)</option>
@@ -93,12 +96,12 @@ export function UserAdmin() {
                 </td>
                 <td className="px-6 py-4 text-center">
                   <label className="relative inline-flex items-center cursor-pointer">
-                    <input 
-                      type="checkbox" 
-                      className="sr-only peer" 
+                    <input
+                      type="checkbox"
+                      className="sr-only peer"
                       checked={!!u.isAdmin}
-                      onChange={() => handleAdminToggle(u.uid, !!u.isAdmin)}
-                      disabled={u.uid === user.uid} // Evita que você tire seu próprio admin por engano!
+                      onChange={() => handleAdminToggle(u.username, !!u.isAdmin)}
+                      disabled={u.username === user.username} // Evita remover o próprio admin
                     />
                     <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-500"></div>
                   </label>

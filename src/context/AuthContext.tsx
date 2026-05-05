@@ -5,8 +5,8 @@ import { doc, setDoc, onSnapshot, getDoc, serverTimestamp } from 'firebase/fires
 
 // Tipagem do usuário logado
 export interface UserProfile {
-  uid: string;
-  username: string;
+  uid: string;       // Firebase Auth UID da sessão atual (muda a cada login anônimo)
+  username: string;  // CPF / login SILOMS — chave persistente do perfil no Firestore
   role: 'Auditor' | 'Aprovador' | 'Visualizador';
   isAdmin?: boolean;
 }
@@ -21,28 +21,52 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// ─── Helpers internos ─────────────────────────────────────────────────────────
+
+/** Salva/atualiza perfil em users/{username} e cria uid_map/{uid}→username. */
+async function persistProfile(uid: string, profile: UserProfile): Promise<void> {
+  await setDoc(doc(db, 'users', profile.username), { ...profile, uid });
+  await setDoc(doc(db, 'uid_map', uid), { username: profile.username });
+}
+
+/** Resolve o perfil a partir de um UID do Firebase Auth. */
+async function resolveProfile(uid: string): Promise<UserProfile | null> {
+  // 1. Tenta o novo modelo: uid_map → users/{username}
+  const mapSnap = await getDoc(doc(db, 'uid_map', uid));
+  if (mapSnap.exists()) {
+    const { username } = mapSnap.data() as { username: string };
+    const profSnap = await getDoc(doc(db, 'users', username));
+    if (profSnap.exists()) return { ...profSnap.data() as UserProfile, uid };
+  }
+
+  // 2. Fallback: modelo antigo users/{uid} (migração automática)
+  const oldSnap = await getDoc(doc(db, 'users', uid));
+  if (oldSnap.exists()) {
+    const profile = oldSnap.data() as UserProfile;
+    // Migra para o novo modelo silenciosamente
+    await persistProfile(uid, profile);
+    return profile;
+  }
+
+  return null;
+}
+
+// ─── Provider ─────────────────────────────────────────────────────────────────
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<UserProfile | null>(null);
+  const [user, setUser]         = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Verifica se o usuário já tem uma sessão ativa no Firebase ao carregar a página
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
-        // Busca o perfil do usuário no Firestore para saber a role (nível de acesso)
-        const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
-        if (userDoc.exists()) {
-          setUser(userDoc.data() as UserProfile);
-        } else {
-          // Se não tem perfil, consideramos como deslogado por segurança
-          setUser(null);
-        }
+        const profile = await resolveProfile(firebaseUser.uid);
+        setUser(profile);
       } else {
         setUser(null);
       }
       setIsLoading(false);
     });
-
     return () => unsubscribe();
   }, []);
 
@@ -54,33 +78,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const emit = (msg: string) => setStatus?.(msg);
 
     try {
-      // ── Login de administrador local (sem SILOMS) ──────────────────────────
+      // ── Admin local (sem SILOMS) ─────────────────────────────────────────
       if (username.toLowerCase() === 'admin' && password === '159602') {
         emit('Autenticando administrador...');
-        const cred = await signInAnonymously(auth);
-        const uid  = cred.user.uid;
-        const adminProfile: UserProfile = { uid, username: 'Admin', role: 'Auditor', isAdmin: true };
-        await setDoc(doc(db, 'users', uid), adminProfile);
+        const { user: fbUser } = await signInAnonymously(auth);
+        const uid = fbUser.uid;
+
+        // Carrega perfil existente do Admin (preserva alterações feitas no painel)
+        const existingSnap = await getDoc(doc(db, 'users', 'Admin'));
+        const adminProfile: UserProfile = existingSnap.exists()
+          ? { ...existingSnap.data() as UserProfile, uid }
+          : { uid, username: 'Admin', role: 'Auditor', isAdmin: true };
+
+        await persistProfile(uid, adminProfile);
         setUser(adminProfile);
         emit('Acesso administrativo concedido!');
         return adminProfile;
       }
 
-      // ── Login normal via SILOMS ────────────────────────────────────────────
+      // ── Login normal via SILOMS ──────────────────────────────────────────
       emit('Conectando ao Firebase...');
-      const userCredential = await signInAnonymously(auth);
-      const uid = userCredential.user.uid;
+      const { user: fbUser } = await signInAnonymously(auth);
+      const uid = fbUser.uid;
 
       emit('Enviando credenciais para validação no SILOMS...');
       const requestId  = `${uid}_${Date.now()}`;
       const requestRef = doc(db, 'auth_requests', requestId);
 
       await setDoc(requestRef, {
-        usuario:   username,
-        senha:     btoa(password),
-        status:    'pending',
-        createdAt: serverTimestamp(),
-        uid,
+        usuario: username, senha: btoa(password),
+        status: 'pending', createdAt: serverTimestamp(), uid,
       });
 
       emit('Aguardando resposta do worker interno (até 45s)...');
@@ -93,8 +120,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           resolve(null);
         }, 45000);
 
-        const unsubscribe = onSnapshot(requestRef, async (docSnap) => {
-          const data = docSnap.data();
+        const unsubscribe = onSnapshot(requestRef, async (snap) => {
+          const data = snap.data();
           if (!data || data.status === 'pending') return;
 
           clearTimeout(timeout);
@@ -102,19 +129,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
           if (data.status === 'approved') {
             emit('Login aprovado! Carregando perfil...');
-            const userProfileRef  = doc(db, 'users', uid);
-            const userProfileSnap = await getDoc(userProfileRef);
 
-            let profileData: UserProfile;
-            if (!userProfileSnap.exists()) {
-              profileData = { uid, username, role: 'Visualizador', isAdmin: false };
-              await setDoc(userProfileRef, profileData);
+            // Busca perfil pelo USERNAME — preserva papel atribuído anteriormente
+            const profSnap = await getDoc(doc(db, 'users', username));
+
+            let profile: UserProfile;
+            if (profSnap.exists()) {
+              // Perfil já existe: reutiliza role/isAdmin, atualiza uid da sessão
+              profile = { ...profSnap.data() as UserProfile, uid };
             } else {
-              profileData = userProfileSnap.data() as UserProfile;
+              // Primeiro login deste usuário
+              profile = { uid, username, role: 'Visualizador', isAdmin: false };
             }
 
-            setUser(profileData);
-            resolve(profileData);
+            await persistProfile(uid, profile);
+            setUser(profile);
+            resolve(profile);
           } else {
             emit('Acesso negado. Verifique usuário e senha do SILOMS.');
             await signOut(auth);
@@ -145,8 +175,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth deve ser usado dentro de um AuthProvider');
-  }
+  if (context === undefined) throw new Error('useAuth deve ser usado dentro de um AuthProvider');
   return context;
 };
