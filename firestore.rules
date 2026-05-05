@@ -1,0 +1,58 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Catch-all deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && 
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+             getUserData().get('isAdmin', false) == true;
+    }
+
+    // Regras para usuários logados anonimamente (Processo de Login SILOMS)
+    match /auth_requests/{requestId} {
+      allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
+      allow read: if isSignedIn() && resource.data.uid == request.auth.uid;
+      allow update, delete: if false; 
+    }
+
+    match /users/{userId} {
+      // O próprio usuário pode ler seu perfil, ou um Admin pode listar todos
+      allow get: if isSignedIn() && request.auth.uid == userId;
+      allow list: if isAdmin();
+      
+      // Criação inicial (pelo AuthContext)
+      allow create: if isSignedIn() && request.auth.uid == userId 
+                    && request.resource.data.get('isAdmin', false) == false; 
+      
+      // Apenas Admins podem promover outros ou mudar papéis
+      allow update: if isAdmin();
+      allow delete: if false;
+    }
+
+    // Regras para as notas (só lê quem já passou pelo proxy do SILOMS e tem perfil)
+    match /notas_fiscais/{notaId} {
+      allow read: if isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+      allow write: if false; 
+    }
+    
+    match /command_queue/{cmdId} {
+      allow create: if isSignedIn();
+      allow read: if isAdmin(); // Apenas admin ou worker
+      allow update, delete: if false;
+    }
+  }
+}

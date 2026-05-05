@@ -1,0 +1,45 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "User profile information and role",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "name": { "type": "string" },
+        "username": { "type": "string" },
+        "role": { "type": "string", "enum": ["ADMIN", "OPERADOR", "APROVADOR", "FISCAL"] },
+        "email": { "type": "string", "format": "email" }
+      },
+      "required": ["uid", "name", "role", "email"]
+    },
+    "Invoice": {
+      "title": "Invoice",
+      "description": "Invoice data and workflow status",
+      "type": "object",
+      "properties": {
+        "number": { "type": "string" },
+        "vendor": { "type": "string" },
+        "vendorCnpj": { "type": "string" },
+        "value": { "type": "number" },
+        "contract": { "type": "string" },
+        "status": { "type": "string", "enum": ["PENDENTE", "CONFERIDA", "RETORNADA", "AGUARDANDO_APROVACAO", "DESPACHADA"] },
+        "url_pdf": { "type": "string" },
+        "historico_comentarios": { "type": "array", "items": { "type": "string" } },
+        "data_criacao": { "type": "string", "format": "date-time" },
+        "responsavel_atual_uid": { "type": "string" }
+      },
+      "required": ["number", "vendor", "value", "status", "data_criacao"]
+    }
+  },
+  "firestore": {
+    "/usuarios/{userId}": {
+      "schema": "User",
+      "description": "User collection indexed by Auth UID"
+    },
+    "/notas/{notaId}": {
+      "schema": "Invoice",
+      "description": "Invoices collection"
+    }
+  }
+}

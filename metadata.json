@@ -1,0 +1,6 @@
+{
+  "name": "PAMA-LS - Gestão e Automação de NF",
+  "description": "Sistema de gestão de notas fiscais integrado ao SILOMS com automação Selenium e auditoria via IA Gemini.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
