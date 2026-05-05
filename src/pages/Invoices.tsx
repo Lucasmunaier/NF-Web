@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../services/firebase';
-import { collection, query, onSnapshot, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, onSnapshot, addDoc, serverTimestamp, getDoc, doc } from 'firebase/firestore';
+import type { Recipient } from './Settings';
 import { useAuth } from '../context/AuthContext';
 import {
   FileText, RotateCcw, CheckCircle, Search, ChevronRight,
@@ -64,6 +65,18 @@ function EmailModal({ notas, onClose, onEnviar, loading }: EmailModalProps) {
   const [obs, setObs] = useState<Record<string, string>>(() =>
     Object.fromEntries(notas.map(n => [n.id, n.observacao_auditor ?? '']))
   );
+
+  // Pre-popula Para/CC com destinatários salvos nas configurações
+  useEffect(() => {
+    getDoc(doc(db, 'app_config', 'recipients')).then(snap => {
+      if (!snap.exists()) return;
+      const lista: Recipient[] = snap.data().lista ?? [];
+      const envio   = lista.filter(r => r.padrao_envio).map(r => r.email).join('; ');
+      const retorno = lista.filter(r => r.padrao_retorno && !r.padrao_envio).map(r => r.email).join('; ');
+      if (envio)   setTo(envio);
+      if (retorno) setCc(retorno);
+    }).catch(() => {});
+  }, []);
 
   const handleSubmit = (tipo: 'aprovacao' | 'retorno') => {
     if (!to.trim()) { toast.error('Informe o destinatário (Para:)'); return; }

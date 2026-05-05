@@ -28,12 +28,15 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
   const { user, logout } = useAuth();
 
   const menuItems = [
-    { icon: LayoutDashboard, label: 'Dashboard', path: '/', roles: Object.values(UserRole) },
-    { icon: FileText, label: 'Notas Fiscais', path: '/invoices', roles: Object.values(UserRole) },
-    { icon: Users, label: 'Auditoria', path: '/users', roles: [UserRole.AUDITOR] },
+    { icon: LayoutDashboard, label: 'Dashboard',      path: '/',         roles: Object.values(UserRole), adminOnly: false },
+    { icon: FileText,        label: 'Notas Fiscais',  path: '/invoices', roles: Object.values(UserRole), adminOnly: false },
+    { icon: Users,           label: 'Usuários',       path: '/users',    roles: Object.values(UserRole), adminOnly: true  },
+    { icon: Settings,        label: 'Configurações',  path: '/settings', roles: Object.values(UserRole), adminOnly: true  },
   ];
 
-  const filteredMenu = menuItems.filter(item => item.roles.includes(user?.role as UserRole));
+  const filteredMenu = menuItems.filter(item =>
+    item.roles.includes(user?.role as UserRole) && (!item.adminOnly || user?.isAdmin)
+  );
 
   return (
     <motion.aside 

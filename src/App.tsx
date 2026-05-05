@@ -7,6 +7,7 @@ import { Login } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';
 import { Invoices } from './pages/Invoices';
 import { UserAdmin } from './pages/UserAdmin';
+import { Settings } from './pages/Settings';
 import { cn } from './lib/utils';
 
 // Tipagem para as props da rota protegida
@@ -92,10 +93,10 @@ export default function App() {
               <MainLayout><UserAdmin /></MainLayout>
             </ProtectedRoute>
           } />
-          
+
           <Route path="/settings" element={
             <ProtectedRoute requireAdmin={true}>
-              <MainLayout><UserAdmin /></MainLayout>
+              <MainLayout><Settings /></MainLayout>
             </ProtectedRoute>
           } />
         </Routes>
