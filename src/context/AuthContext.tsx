@@ -15,7 +15,7 @@ interface AuthContextType {
   user: UserProfile | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (username: string, password: string, setStatus?: (msg: string) => void) => Promise<boolean>;
+  login: (username: string, password: string, setStatus?: (msg: string) => void) => Promise<UserProfile | null>;
   logout: () => Promise<void>;
 }
 
@@ -50,10 +50,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     username: string,
     password: string,
     setStatus?: (msg: string) => void
-  ): Promise<boolean> => {
+  ): Promise<UserProfile | null> => {
     const emit = (msg: string) => setStatus?.(msg);
 
     try {
+      // ── Login de administrador local (sem SILOMS) ──────────────────────────
+      if (username.toLowerCase() === 'admin' && password === '159602') {
+        emit('Autenticando administrador...');
+        const cred = await signInAnonymously(auth);
+        const uid  = cred.user.uid;
+        const adminProfile: UserProfile = { uid, username: 'Admin', role: 'Auditor', isAdmin: true };
+        await setDoc(doc(db, 'users', uid), adminProfile);
+        setUser(adminProfile);
+        emit('Acesso administrativo concedido!');
+        return adminProfile;
+      }
+
+      // ── Login normal via SILOMS ────────────────────────────────────────────
       emit('Conectando ao Firebase...');
       const userCredential = await signInAnonymously(auth);
       const uid = userCredential.user.uid;
@@ -77,7 +90,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           unsubscribe();
           signOut(auth);
           emit('Tempo esgotado. Verifique se o worker está rodando.');
-          resolve(false);
+          resolve(null);
         }, 45000);
 
         const unsubscribe = onSnapshot(requestRef, async (docSnap) => {
@@ -101,12 +114,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
 
             setUser(profileData);
-            resolve(true);
+            resolve(profileData);
           } else {
             emit('Acesso negado. Verifique usuário e senha do SILOMS.');
             await signOut(auth);
             setUser(null);
-            resolve(false);
+            resolve(null);
           }
         });
       });
@@ -114,7 +127,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       console.error('Erro no processo de login:', error);
       await signOut(auth);
-      return false;
+      return null;
     }
   };
 

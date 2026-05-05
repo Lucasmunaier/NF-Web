@@ -20,10 +20,11 @@ export function Login() {
     setStatusMessage('Iniciando comunicação segura...');
 
     try {
-      const success = await login(username, password, setStatusMessage);
-      if (success) {
-        toast.success(`Bem-vindo, ${username}!`);
-        navigate('/');
+      const profile = await login(username, password, setStatusMessage);
+      if (profile) {
+        toast.success(`Bem-vindo, ${profile.username}!`);
+        // Auditor vai direto para Notas Fiscais
+        navigate(profile.role === 'Auditor' ? '/invoices' : '/');
       } else {
         toast.error('Credenciais inválidas ou acesso negado.');
         setStatusMessage('');
