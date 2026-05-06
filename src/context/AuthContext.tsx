@@ -25,8 +25,9 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 /** Salva/atualiza perfil em users/{username} e cria uid_map/{uid}→username. */
 async function persistProfile(uid: string, profile: UserProfile): Promise<void> {
-  await setDoc(doc(db, 'users', profile.username), { ...profile, uid });
+  // uid_map deve existir ANTES de users para as regras do Firestore funcionarem
   await setDoc(doc(db, 'uid_map', uid), { username: profile.username });
+  await setDoc(doc(db, 'users', profile.username), { ...profile, uid });
 }
 
 /** Resolve o perfil a partir de um UID do Firebase Auth. */
@@ -60,8 +61,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
-        const profile = await resolveProfile(firebaseUser.uid);
-        setUser(profile);
+        try {
+          const profile = await resolveProfile(firebaseUser.uid);
+          setUser(profile);
+        } catch {
+          setUser(null);
+        }
       } else {
         setUser(null);
       }
@@ -83,6 +88,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         emit('Autenticando administrador...');
         const { user: fbUser } = await signInAnonymously(auth);
         const uid = fbUser.uid;
+
+        // uid_map deve existir antes de acessar users/Admin (exigido pelas regras)
+        await setDoc(doc(db, 'uid_map', uid), { username: 'Admin' });
 
         // Carrega perfil existente do Admin (preserva alterações feitas no painel)
         const existingSnap = await getDoc(doc(db, 'users', 'Admin'));
@@ -129,6 +137,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
           if (data.status === 'approved') {
             emit('Login aprovado! Carregando perfil...');
+
+            // uid_map deve existir antes de acessar users/{username} (exigido pelas regras)
+            await setDoc(doc(db, 'uid_map', uid), { username });
 
             // Busca perfil pelo USERNAME — preserva papel atribuído anteriormente
             const profSnap = await getDoc(doc(db, 'users', username));
