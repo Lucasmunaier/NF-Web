@@ -84,7 +84,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     try {
       // ── Admin local (sem SILOMS) ─────────────────────────────────────────
-      if (username.toLowerCase() === 'admin' && password === '159602') {
+      if (username === 'Admin' && password === '159602') {
         emit('Autenticando administrador...');
         const { user: fbUser } = await signInAnonymously(auth);
         const uid = fbUser.uid;
@@ -137,25 +137,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
           if (data.status === 'approved') {
             emit('Login aprovado! Carregando perfil...');
+            try {
+              // uid_map deve existir antes de acessar users/{username} (exigido pelas regras)
+              await setDoc(doc(db, 'uid_map', uid), { username });
 
-            // uid_map deve existir antes de acessar users/{username} (exigido pelas regras)
-            await setDoc(doc(db, 'uid_map', uid), { username });
+              // Busca perfil pelo USERNAME — preserva papel atribuído anteriormente
+              const profSnap = await getDoc(doc(db, 'users', username));
 
-            // Busca perfil pelo USERNAME — preserva papel atribuído anteriormente
-            const profSnap = await getDoc(doc(db, 'users', username));
+              let profile: UserProfile;
+              if (profSnap.exists()) {
+                // Perfil já existe: reutiliza role/isAdmin, atualiza uid da sessão
+                profile = { ...profSnap.data() as UserProfile, uid };
+              } else {
+                // Primeiro login deste usuário
+                profile = { uid, username, role: 'Visualizador', isAdmin: false };
+              }
 
-            let profile: UserProfile;
-            if (profSnap.exists()) {
-              // Perfil já existe: reutiliza role/isAdmin, atualiza uid da sessão
-              profile = { ...profSnap.data() as UserProfile, uid };
-            } else {
-              // Primeiro login deste usuário
-              profile = { uid, username, role: 'Visualizador', isAdmin: false };
+              await persistProfile(uid, profile);
+              setUser(profile);
+              resolve(profile);
+            } catch (err) {
+              console.error('Erro ao carregar perfil após aprovação:', err);
+              await signOut(auth);
+              setUser(null);
+              resolve(null);
             }
-
-            await persistProfile(uid, profile);
-            setUser(profile);
-            resolve(profile);
           } else {
             emit('Acesso negado. Verifique usuário e senha do SILOMS.');
             await signOut(auth);

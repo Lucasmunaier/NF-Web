@@ -16,6 +16,12 @@ export function Login() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (username !== 'Admin' && !/^\d{11}$/.test(username)) {
+      toast.error('Usuário inválido. Digite seu CPF (11 dígitos) ou "Admin".');
+      return;
+    }
+
     setIsSubmitting(true);
     setStatusMessage('Iniciando comunicação segura...');
 

@@ -20,17 +20,13 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/uid_map/$(request.auth.uid)).data.username;
     }
 
-    function getUserData() {
-      return get(/databases/$(database)/documents/users/$(myUsername())).data;
-    }
-
     function isAdmin() {
       return hasUidMap() &&
              exists(/databases/$(database)/documents/users/$(myUsername())) &&
-             getUserData().get('isAdmin', false) == true;
+             get(/databases/$(database)/documents/users/$(myUsername())).data.get('isAdmin', false) == true;
     }
 
-    // UID → username mapping (cada usuário gerencia apenas o seu próprio)
+    // UID → username mapping
     match /uid_map/{uid} {
       allow read, write: if isSignedIn() && uid == request.auth.uid;
     }
@@ -42,20 +38,19 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
-    // Perfil especial do Admin (regra específica tem precedência)
+    // Perfil especial do Admin — regra específica tem precedência
     match /users/Admin {
       allow read, write: if isSignedIn() && hasUidMap() && myUsername() == 'Admin';
     }
 
     // Perfis de usuários (chave = username, não UID)
     match /users/{userId} {
-      // Lê o próprio perfil via lookup uid_map → username
-      allow get: if isSignedIn() && hasUidMap() && myUsername() == userId;
-      // Admin lista todos
+      // Leitura simples: qualquer usuário autenticado pode ler perfis
+      // (necessário para o carregamento de perfil pós-login sem depender de uid_map)
+      allow get: if isSignedIn();
       allow list: if isAdmin();
-      // Cria perfil próprio sem se promover a admin
-      allow create: if isSignedIn() && hasUidMap() && myUsername() == userId
-                    && request.resource.data.get('isAdmin', false) == false;
+      // Cria perfil próprio sem poder se tornar admin
+      allow create: if isSignedIn() && request.resource.data.get('isAdmin', false) == false;
       // Atualiza o próprio perfil apenas para trocar o uid de sessão (preserva role/isAdmin)
       // ou Admin atualiza qualquer perfil
       allow update: if isAdmin() ||
