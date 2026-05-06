@@ -18,7 +18,7 @@ export function Login() {
     e.preventDefault();
 
     if (username !== 'Admin' && !/^\d{11}$/.test(username)) {
-      toast.error('Usuário inválido. Digite seu CPF (11 dígitos) ou "Admin".');
+      toast.error('Usuário inválido. Digite seu CPF com 11 dígitos.');
       return;
     }
 
