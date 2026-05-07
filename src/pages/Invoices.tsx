@@ -2,14 +2,14 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { db } from '../services/firebase';
 import {
   collection, query, onSnapshot, addDoc, serverTimestamp,
-  doc, updateDoc, getDoc,
+  doc, updateDoc, getDoc, deleteDoc,
 } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
 import {
   FileText, RotateCcw, CheckCircle, Search, ChevronDown,
   ExternalLink, Send, Mail, X, Layers, AlertTriangle,
   CheckSquare, Square, LayoutList, Filter, Clock, Save,
-  Loader2, File,
+  Loader2, File, Trash2,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { cn } from '../lib/utils';
@@ -344,6 +344,25 @@ export function Invoices() {
       });
     } catch { toast.error('Erro ao salvar observação.'); }
     finally { setIsSavingObs(false); }
+  };
+
+  // ── Apagar notas (Auditor/Admin) ─────────────────────────────────────────
+  const apagarSelecionadas = async () => {
+    const ids = [...selectedIds];
+    if (!ids.length) return;
+    if (!window.confirm(`Apagar ${ids.length} nota(s) do banco de dados? Esta ação não pode ser desfeita.`)) return;
+    setIsActing(true);
+    try {
+      await Promise.all(ids.map(id => deleteDoc(doc(db, 'notas_fiscais', id))));
+      toast.success(`${ids.length} nota(s) apagada(s).`);
+      setSelectedIds(new Set());
+      setFocusedId(null);
+    } catch (e) {
+      console.error(e);
+      toast.error('Erro ao apagar notas (verifique permissão).');
+    } finally {
+      setIsActing(false);
+    }
   };
 
   // ── Mudar status ─────────────────────────────────────────────────────────
@@ -771,6 +790,14 @@ export function Invoices() {
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-700 hover:bg-rose-600 text-white text-xs font-bold rounded-lg disabled:opacity-50 transition-colors">
                 <RotateCcw size={13} /> Marcar Retornada
               </button>
+
+              {(isAuditor || user?.isAdmin) && (
+                <button disabled={isActing}
+                  onClick={apagarSelecionadas}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-red-700 hover:bg-red-600 text-white text-xs font-bold rounded-lg disabled:opacity-50 transition-colors">
+                  <Trash2 size={13} /> Apagar
+                </button>
+              )}
 
               <div className="w-px h-5 bg-slate-700 mx-1" />
 

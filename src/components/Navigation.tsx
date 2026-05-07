@@ -1,17 +1,21 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { 
-  LayoutDashboard, 
-  FileText, 
-  CheckCircle, 
-  Users, 
-  Settings, 
-  LogOut, 
+import { db } from '../services/firebase';
+import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
+import {
+  LayoutDashboard,
+  FileText,
+  CheckCircle,
+  Users,
+  Settings,
+  LogOut,
   Search,
   Menu,
   X,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Download,
+  Loader2,
 } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import { UserRole } from '../types';
@@ -107,19 +111,44 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
 }
 
 export function Header() {
+  const { user } = useAuth();
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const sincronizar = async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    const t = toast.loading('Acionando worker para baixar notas do SILOMS...');
+    try {
+      await addDoc(collection(db, 'command_queue'), {
+        command: 'baixar_notas',
+        status: 'pending',
+        createdAt: serverTimestamp(),
+        uid: user?.uid,
+        usuario: user?.username,
+      });
+      toast.success('Worker acionado! Acompanhe o download em ~/Downloads/Web-NF/Notas Fiscais', { id: t, duration: 6000 });
+    } catch {
+      toast.error('Erro ao acionar o worker.', { id: t });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   return (
     <header className="h-16 sticky top-0 bg-white border-b border-slate-200 z-40 px-8 flex items-center justify-between">
       <div className="flex items-center gap-4 flex-1">
         <h2 className="text-lg font-semibold text-slate-800">Dashboard Geral</h2>
         <span className="text-xs text-slate-400 font-mono bg-slate-100 px-2 py-1 rounded">API: v2.4.1-Stable</span>
       </div>
-      
+
       <div className="flex items-center gap-3">
-        <button 
-          onClick={() => toast.success('Sistema Sincronizado')}
-          className="px-4 py-2 bg-brand-600 text-white text-xs font-semibold rounded shadow-sm hover:bg-brand-700 transition-colors"
+        <button
+          onClick={sincronizar}
+          disabled={isSyncing}
+          className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white text-xs font-semibold rounded shadow-sm hover:bg-brand-700 transition-colors disabled:opacity-60"
         >
-          Sincronizar SILOMS
+          {isSyncing ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+          {isSyncing ? 'Acionando...' : 'Baixar Notas SILOMS'}
         </button>
         <div className="w-px h-6 bg-slate-200 mx-2"></div>
         <div className="relative">

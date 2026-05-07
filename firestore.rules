@@ -64,7 +64,17 @@ service cloud.firestore {
     match /notas_fiscais/{notaId} {
       allow read: if isSignedIn() && hasUidMap() &&
                   exists(/databases/$(database)/documents/users/$(myUsername()));
-      allow write: if false;
+      // Auditor, Aprovador e Admin podem alterar status (CONFERIDA, RETORNADA, etc.)
+      allow update: if isSignedIn() && hasUidMap() &&
+                    exists(/databases/$(database)/documents/users/$(myUsername())) &&
+                    (get(/databases/$(database)/documents/users/$(myUsername())).data.role in ['Auditor', 'Aprovador'] ||
+                     get(/databases/$(database)/documents/users/$(myUsername())).data.get('isAdmin', false) == true);
+      // Apenas Auditor e Admin podem apagar notas
+      allow delete: if isSignedIn() && hasUidMap() &&
+                    exists(/databases/$(database)/documents/users/$(myUsername())) &&
+                    (get(/databases/$(database)/documents/users/$(myUsername())).data.role == 'Auditor' ||
+                     get(/databases/$(database)/documents/users/$(myUsername())).data.get('isAdmin', false) == true);
+      allow create: if false;
     }
 
     // Fila de comandos para o worker

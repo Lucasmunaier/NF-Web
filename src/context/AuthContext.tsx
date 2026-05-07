@@ -9,6 +9,8 @@ export interface UserProfile {
   username: string;  // CPF / login SILOMS — chave persistente do perfil no Firestore
   role: 'Auditor' | 'Aprovador' | 'Visualizador';
   isAdmin?: boolean;
+  passwordHash?: string;
+  salt?: string;
 }
 
 interface AuthContextType {
@@ -20,6 +22,18 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+// ─── Helpers de hash (SHA-256 + salt) ─────────────────────────────────────────
+
+async function sha256Hex(text: string): Promise<string> {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function newSalt(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+}
 
 // ─── Helpers internos ─────────────────────────────────────────────────────────
 
@@ -104,11 +118,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return adminProfile;
       }
 
-      // ── Login normal via SILOMS ──────────────────────────────────────────
+      // ── Login SILOMS — entra com Firebase Anônimo primeiro ──────────────
       emit('Conectando ao Firebase...');
       const { user: fbUser } = await signInAnonymously(auth);
       const uid = fbUser.uid;
 
+      // ── FAST PATH: cache de senha (usuário já cadastrado) ───────────────
+      try {
+        emit('Verificando cadastro local...');
+        const cached = await getDoc(doc(db, 'users', username));
+        if (cached.exists()) {
+          const data = cached.data() as UserProfile;
+          if (data.passwordHash && data.salt) {
+            const hash = await sha256Hex(password + data.salt);
+            if (hash === data.passwordHash) {
+              await setDoc(doc(db, 'uid_map', uid), { username });
+              const profile: UserProfile = { ...data, uid };
+              await persistProfile(uid, profile);
+              setUser(profile);
+              emit('Acesso liberado!');
+              return profile;
+            }
+          }
+        }
+      } catch {
+        // Falha silenciosa — segue para validação SILOMS
+      }
+
+      // ── SLOW PATH: validação via worker SILOMS ──────────────────────────
       emit('Enviando credenciais para validação no SILOMS...');
       const requestId  = `${uid}_${Date.now()}`;
       const requestRef = doc(db, 'auth_requests', requestId);
@@ -138,19 +175,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (data.status === 'approved') {
             emit('Login aprovado! Carregando perfil...');
             try {
-              // uid_map deve existir antes de acessar users/{username} (exigido pelas regras)
               await setDoc(doc(db, 'uid_map', uid), { username });
 
-              // Busca perfil pelo USERNAME — preserva papel atribuído anteriormente
               const profSnap = await getDoc(doc(db, 'users', username));
+              const salt = newSalt();
+              const passwordHash = await sha256Hex(password + salt);
 
               let profile: UserProfile;
               if (profSnap.exists()) {
-                // Perfil já existe: reutiliza role/isAdmin, atualiza uid da sessão
-                profile = { ...profSnap.data() as UserProfile, uid };
+                // Perfil já existe — atualiza uid + hash da senha (caso senha tenha mudado)
+                profile = { ...profSnap.data() as UserProfile, uid, passwordHash, salt };
               } else {
-                // Primeiro login deste usuário
-                profile = { uid, username, role: 'Visualizador', isAdmin: false };
+                // Primeiro login — cria perfil com senha cacheada
+                profile = { uid, username, role: 'Visualizador', isAdmin: false, passwordHash, salt };
               }
 
               await persistProfile(uid, profile);
